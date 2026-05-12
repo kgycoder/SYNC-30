@@ -47,6 +47,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "SYNC";
     private WebView webView;
     private WebViewAssetLoader assetLoader;
+    static java.lang.ref.WeakReference<MainActivity> inst;
 
     private final OkHttpClient http = new OkHttpClient.Builder()
             .followRedirects(true)
@@ -129,6 +130,25 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+// ── 미디어 서비스 시작 ──
+inst = new java.lang.ref.WeakReference<>(this);
+
+// Android 13+ 알림 권한 요청
+if (Build.VERSION.SDK_INT >= 33) {
+    if (checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        requestPermissions(
+            new String[]{"android.permission.POST_NOTIFICATIONS"}, 99);
+    }
+}
+startSvc();
+
+// 알림 버튼 → WebView JS 호출
+MusicService.cbPlay  = () -> evalJs("if(!S.playing)togglePlay()");
+MusicService.cbPause = () -> evalJs("if(S.playing)togglePlay()");
+MusicService.cbNext  = () -> evalJs("nextT()");
+MusicService.cbPrev  = () -> evalJs("prevT()");
+        
         webView.loadUrl(
                 "https://appassets.androidplatform.net/assets/www/index.html");
     }
@@ -146,6 +166,15 @@ public class MainActivity extends AppCompatActivity {
                         executor.submit(() -> doSuggest(msg)); break;
                     case "fetchLyrics":
                         executor.submit(() -> doFetchLyrics(msg)); break;
+                    case "mediaUpdate":
+                        String mt = msg.optString("title", "");
+                        String ma = msg.optString("artist", "");
+                        boolean mp = msg.optBoolean("isPlaying", false);
+                        long mpos  = msg.optLong("position", 0);
+                        long mdur  = msg.optLong("duration", 0);
+                        MusicService ms = MusicService.inst != null ? MusicService.inst.get() : null;
+                        if (ms != null) ms.update(mt, ma, mp, mpos, mdur);
+                        break;
                     case "orientation":
                         String orient = msg.optString("value", "sensor");
                         runOnUiThread(() -> setOrientation(orient)); break;
@@ -777,12 +806,14 @@ public class MainActivity extends AppCompatActivity {
         return c.replaceAll("\\s{2,}", " ").trim();
     }
 
-    @Override protected void onPause()   { super.onPause();   webView.onPause(); }
+    @Override  void onPause()   { super.onPause(); }
     @Override protected void onResume()  { super.onResume();  webView.onResume(); }
-    @Override protected void onDestroy() {
+    @Override
+    protected void onDestroy() {
         super.onDestroy();
         executor.shutdown();
         webView.destroy();
+        stopService(new Intent(this, MusicService.class));
     }
 
     /**
@@ -799,4 +830,18 @@ public class MainActivity extends AppCompatActivity {
         webView.evaluateJavascript(
                 "window.__onAndroidBack && window.__onAndroidBack()", null);
     }
+}
+
+/** WebView JS 호출 (어느 스레드에서도 안전) */
+void evalJs(String js) {
+    runOnUiThread(() -> webView.evaluateJavascript(js, null));
+}
+
+/** MusicService 시작 */
+private void startSvc() {
+    Intent i = new Intent(this, MusicService.class);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+        startForegroundService(i);
+    else
+        startService(i);
 }
