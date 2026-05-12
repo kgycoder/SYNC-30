@@ -738,6 +738,18 @@ function callCs(p) {
 function post(type, extra = {}) {
     try { window.AndroidBridge.postMessage(JSON.stringify({ type, ...extra })); } catch { }
 }
+/* ── 미디어 세션 알림 업데이트 ── */
+function postMedia() {
+    if (!S.track) return;
+    post('mediaUpdate', {
+        title:     S.track.title,
+        artist:    S.track.channel || 'YouTube',
+        isPlaying: S.playing,
+        position:  Math.round(S.cur * 1000),
+        duration:  Math.round(S.dur * 1000)
+    });
+}
+let _mtick = 0; // 위치 업데이트 스로틀 카운터
 
 /* ════════════════════════════════════════════
    STATE
@@ -807,6 +819,8 @@ function onYtSt(e) {
         document.getElementById('np-pulse').style.display = 'block';
         if (S.echo > 0) setEcho(S.echo);
         startBeatTimer((MOODS[_curMood] || MOODS.default).bpm);
+        postMedia();  // ← 추가
+
     } else if (e.data === P.PAUSED) {
         S.playing = false; BG.playing = false; updPlay(); stopTick(); stopBeatTimer();
         document.getElementById('vizz').classList.add('off');
@@ -814,6 +828,7 @@ function onYtSt(e) {
         document.getElementById('np-ash').classList.remove('playing');
         document.getElementById('np-pulse').style.display = 'none';
         clearInterval(_echoTimer);
+        postMedia();  // ← 추가
     } else if (e.data === P.ENDED) {
         clearInterval(_echoTimer); stopBeatTimer();
         if (S.repeat === 2) { S.ytPlayer.seekTo(0); S.ytPlayer.playVideo(); }
@@ -1138,6 +1153,7 @@ function startTick() {
             if (OV.active) { setT('ov-p-cur', S.cur); setT('ov-p-tot', S.dur); }
             const bpf = document.getElementById('bar-prog-fill');
             if (bpf) bpf.style.width = pct.toFixed(2) + '%';
+            if (++_mtick % 8 === 0) postMedia();
         } catch { }
     }, 250);
 }
